@@ -64,10 +64,6 @@ class AnnotationAnalyzer:
 
         cols = ['story_id', 'participant_id', component]
         df = ratings_df[cols]
-        # print(df)
-        # print(df.story_id.unique())
-        # print(df.participant_id.unique())
-        # print(df[component].unique())
 
         if len(df.participant_id.unique()) == 1:
             return {
@@ -396,30 +392,15 @@ if __name__ == "__main__":
         llm_ratings_df = pd.read_csv(f'./human_study/data/processed/{llm_name}_annotations_mop_t={temp}.csv', encoding='8859')
     else:
         llm_ratings_df = pd.read_csv(f'./human_study/data/processed/{llm_name}_annotations_mop_all_same_t={temp}.csv', encoding='8859')
-    llm_ratings_df = llm_ratings_df[llm_ratings_df["round"] == 1]
-
-    # print(llm_ratings_df)
 
     stories_df           = pd.read_csv(f'./human_study/data/stories.csv')
     benchmark_stories_df = pd.read_csv(f'./data/study_stories.csv', encoding='8859')
-    benchmark_stories_df = benchmark_stories_df[benchmark_stories_df["round"]==1]
 
     print(f"len(human_ratings_df['story_id'].unique()): {len(human_ratings_df['story_id'].unique())}")
     print(f"len(llm_ratings_df['story_id'].unique()): {len(llm_ratings_df['story_id'].unique())}")
 
-    # blacklist = [83, 70, 71] 
-    # human_ratings_df = filter_out_values(human_ratings_df, "story_id", blacklist)
-    # llm_ratings_df = filter_out_values(llm_ratings_df, "story_id", blacklist)
-    # stories_df = filter_out_values(stories_df, "story_id", blacklist)
-    # benchmark_stories_df = filter_out_values(benchmark_stories_df, "study_id", blacklist)
-
     human_ratings_df.sort_values(['participant_id', 'story_id'], ascending=[True, True])
     llm_ratings_df.sort_values(['participant_id', 'story_id'], ascending=[True, True])
-
-    # cols = ["story_id", "participant_id", 'authenticity_score', 'empathy_score', 'engagement_score', 
-    #             'emotion_provoking_score', 'narrative_complexity_score', "human_likeness_score"]
-    # human_ratings_df[cols].to_csv(f'./story_eval/human_annotations_sorted.csv', index=False)
-    # llm_ratings_df[cols].to_csv(f'./story_eval/gpt-4_annotations_sorted.csv', index=False)
 
     analyzer.model_scores(human_ratings_df).to_csv(f'./story_eval/tables/human_study_model_scores.csv', index=False)
     analyzer.model_scores_w_stdev(human_ratings_df).to_csv(f'./story_eval/tables/human_study_model_scores_w_stdev.csv', index=False)
@@ -455,7 +436,6 @@ if __name__ == "__main__":
         results = []
         for participant_id in participant_ids:
             filtered_llm_ratings_df = llm_ratings_df[llm_ratings_df['participant_id'] != participant_id]
-            # print(f"Excluding participant_id={participant_id}...")
 
             # Calculate regular and comparative IAA for each category
             for component in components:

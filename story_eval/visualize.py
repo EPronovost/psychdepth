@@ -271,31 +271,31 @@ if __name__ == "__main__":
         save_path=os.path.join(save_path, "component_corrs.png")
     )
 
-    # # Spider Plots
-    # plot_spider(
-    #     df=human_ratings_df, 
-    #     models=gpt4_vs_humans, 
-    #     title="", # Mean Psychological Depth Scores
-    #     save_path=os.path.join(save_path, "mean_scores_gpt4_vs_humans.png"),
-    #     sort_order=sort_order,
-    #     colors=colors
-    # )
-    # plot_spider(
-    #     df=human_ratings_df, 
-    #     models=gpt4_vs_llms, 
-    #     title="", # Mean Psychological Depth Scores
-    #     save_path=os.path.join(save_path, "mean_scores_gpt4_vs_llms.png"),
-    #     sort_order=sort_order,
-    #     colors=colors
-    # )
-    # plot_spider(
-    #     df=human_ratings_df, 
-    #     models=all_models, 
-    #     title="", # Mean Psychological Depth Scores
-    #     save_path=os.path.join(save_path, "mean_scores_all.png"),
-    #     sort_order=sort_order,
-    #     colors=colors
-    # )
+    # Spider Plots
+    plot_spider(
+        df=human_ratings_df, 
+        models=gpt4_vs_humans, 
+        title="", # Mean Psychological Depth Scores
+        save_path=os.path.join(save_path, "mean_scores_gpt4_vs_humans.png"),
+        sort_order=sort_order,
+        colors=colors
+    )
+    plot_spider(
+        df=human_ratings_df, 
+        models=gpt4_vs_llms, 
+        title="", # Mean Psychological Depth Scores
+        save_path=os.path.join(save_path, "mean_scores_gpt4_vs_llms.png"),
+        sort_order=sort_order,
+        colors=colors
+    )
+    plot_spider(
+        df=human_ratings_df, 
+        models=all_models, 
+        title="", # Mean Psychological Depth Scores
+        save_path=os.path.join(save_path, "mean_scores_all.png"),
+        sort_order=sort_order,
+        colors=colors
+    )
 
     # CDF plots
     plot_cdf(

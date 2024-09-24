@@ -49,6 +49,7 @@ class StoryEvaluator:
         #     Offer feedback that is candid and honest, but also constructive.
         #     """
         # )
+        
         self.persona_background = "{persona}"
 
         self.eval_background = textwrap.dedent("""
@@ -177,10 +178,6 @@ if __name__ == "__main__":
         personas = [""]
 
     dataset = pd.read_csv("/data2/fabricehc/llm-psych-depth/data/study_stories.csv", encoding='8859')
-    dataset = dataset[dataset["round"] == 1]
-    dataset = dataset[dataset["study_id"] != 70]
-    dataset = dataset[dataset["study_id"] != 71]
-    dataset = dataset[dataset["study_id"] != 83]
 
     if use_mop:
         save_path = f'./human_study/data/processed/{openai_model}_mop_annotations.csv'

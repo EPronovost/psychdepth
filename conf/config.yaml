@@ -1,12 +1,12 @@
 premises_path: "./data/premises.csv"
-save_dir: "./llm_story_generation_results_retry_count_analysis/"
+save_dir: "./llm_story_generation_results/"
 save_path: "${save_dir}/stories_${generator_args.model_name_or_path}_${generation_args.strategy}.csv"
 cuda_visible_devices: "0"
 
 generator_args:
     model_name_or_path: "TheBloke/Mixtral-8x7B-Instruct-v0.1-GPTQ" # "gpt-4"
     revision: "main" 
-    model_cache_dir: "/data1/fabricehc/impossibility-watermark/.cache"
+    model_cache_dir: "./.cache/"
     device_map: "auto"
     trust_remote_code: True
     max_new_tokens: 1024
@@ -19,8 +19,8 @@ generator_args:
 generation_args:
     num_stories: 3
     num_retries: 3
-    strategy: "writer_profile"
-    premise_ids: None 
+    strategy: "writer_profile" # "plan_write"
+    premise_ids: None  # None means for all premise_ids, else use a list []
     num_words: 500
     acceptable_word_count_range: [400, 600]
 
