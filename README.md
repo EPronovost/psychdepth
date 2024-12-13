@@ -51,7 +51,7 @@ python -m story_eval.annotate_openai
 ```
 @misc{psychdepth,
       title={Measuring Psychological Depth in Language Models}, 
-      author={Fabrice Harel-Canada and Hanyu Zhou and Sreya Mupalla and Zeynep Yildiz and Amit Sahai and Nanyun Peng},
+      author={Fabrice Harel-Canada and Hanyu Zhou and Sreya Mupalla and Zeynep Yildiz and Miryung Kim and Amit Sahai and Nanyun Peng},
       year={2024},
       eprint={2406.12680},
       archivePrefix={arXiv},
