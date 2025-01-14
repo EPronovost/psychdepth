@@ -235,7 +235,7 @@ if __name__ == "__main__":
 
     import os
 
-    scores_path = "./human_study/data/processed/round1/human_annotations.csv"
+    scores_path = "./human_study/data/processed/human_annotations.csv"
     human_ratings_df = pd.read_csv(scores_path).drop(columns=["human_likeness_score"])
 
     sort_order = {
