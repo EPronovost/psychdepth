@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 import datetime
 from tqdm import tqdm
 import json
@@ -7,7 +8,8 @@ import textwrap
 import traceback
 from dotenv import load_dotenv, find_dotenv
 from langchain_openai import ChatOpenAI
-from langchain.llms.fake import FakeListLLM # just for testing...
+# from langchain.llms.fake import FakeListLLM 
+from langchain_community.llms import FakeListLLM # just for testing...
 from langchain_core.prompts import (
     ChatPromptTemplate,
     PromptTemplate,
@@ -152,16 +154,22 @@ class StoryEvaluator:
                 return dict_output
             except Exception:
                 retry_count += 1
-                self.llm.temperature += 0.1
-                print(f"Failed to produce a valid evaluation. Changing temperature to {self.llm.temperature} and trying again...")
+                # self.llm.temperature += 0.1
+                # print(f"Failed to produce a valid evaluation. Changing temperature to {self.llm.temperature} and trying again...")
+                print("Failed to produce a valid response. Retrying.")
                 if retry_count >= self.num_retries:
-                    print(f"Failed to produce a valid evaluation after {retry_count} tries. Reseting temperature and skipping problem story: \n{story}")
-                    print(traceback.format_exc())
-                    self.llm.temperature = self.base_temperature
+                    raise
+                    # print(f"Failed to produce a valid evaluation after {retry_count} tries. Reseting temperature and skipping problem story: \n{story}")
+                    # print(traceback.format_exc())
+                    # self.llm.temperature = self.base_temperature
 
 if __name__ == "__main__":
 
-    openai_model = "gpt-4o-2024-05-13" # "gpt-3.5-turbo-0125"
+    # Key hyperparameters:
+    # openai_model = "gpt-4o-2024-05-13" # "gpt-3.5-turbo-0125"
+    # openai_model = "gpt-4o-mini-2024-07-18"
+    openai_model = "gpt-4o-2024-08-06"
+    dataset_path = "data/new_human_stories.csv"
     use_mop = True
 
     se = StoryEvaluator(openai_model=openai_model, test_mode=False)
@@ -177,12 +185,9 @@ if __name__ == "__main__":
     else:
         personas = [""]
 
-    dataset = pd.read_csv("/data2/fabricehc/llm-psych-depth/data/study_stories.csv", encoding='8859')
+    dataset = pd.read_csv(dataset_path)
 
-    if use_mop:
-        save_path = f'./human_study/data/processed/{openai_model}_mop_annotations.csv'
-    else:
-        save_path = f'./human_study/data/processed/{openai_model}_no_mop_annotations.csv'
+    save_path = f"./human_study/data/processed/{openai_model}{'' if use_mop else '_no'}_mop_{os.path.splitext(os.path.basename(dataset_path))[0]}_annotations.csv"
 
     # Check if the save file already exists and load it
     try:
@@ -192,7 +197,7 @@ if __name__ == "__main__":
 
     results = []
     for participant_id, persona in enumerate(personas):
-        for index, row in dataset.iterrows():
+        for index, row in tqdm(dataset.iterrows(), total=dataset.shape[0], desc=f"Persona {participant_id} out of {len(personas)}"):
             # Skip rows that have already been annotated
             if not existing_annotations.empty and ((existing_annotations["participant_id"] == participant_id) & (existing_annotations["story_id"] == row["story_id"]) & (existing_annotations["premise_id"] == row["premise_id"])).any():
                 print(f"Skipping already annotated row: participant_id={participant_id}, story_id={row['story_id']}, premise_id={row['premise_id']}")
@@ -210,7 +215,7 @@ if __name__ == "__main__":
                 "time_taken": time_taken,
                 **row,
             })
-            print(f"Results for participant_id={participant_id}, story_id={row['story_id']}, premise_id={row['premise_id']}': {output_dict}")
+            # print(f"Results for participant_id={participant_id}, story_id={row['story_id']}, premise_id={row['premise_id']}': {output_dict}")
             results.append(output_dict)
 
             # Append new results to existing annotations and save to CSV
