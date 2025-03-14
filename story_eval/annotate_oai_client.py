@@ -47,8 +47,8 @@ class StoryEvaluator:
         
         if not test_mode:
             self.client = AzureOpenAI(
-                azure_endpoint="https://tsvetshop.openai.azure.com/",  # Replace with your endpoint
-                api_key="4fde8a5fd0154b37a17b4e9ce127ef1b",  # Replace with your API key
+                azure_endpoint="https://.openai.azure.com/",  # Replace with your endpoint
+                api_key="",  # Replace with your API key
                 api_version="2023-05-15",
             )
 
