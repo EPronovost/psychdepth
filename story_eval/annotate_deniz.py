@@ -5,11 +5,17 @@ from tqdm import tqdm
 import json
 import time
 import textwrap
-# import traceback
-# from dotenv import load_dotenv, find_dotenv
-# from langchain_openai import ChatOpenAI
-# from langchain.llms.fake import FakeListLLM 
-from langchain_community.llms import FakeListLLM # just for testing...
+import traceback
+from dotenv import load_dotenv, find_dotenv
+import openai
+import backoff
+import logging
+from openai import AzureOpenAI
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from typing import Any, List, Mapping, Optional
+
 from langchain_core.prompts import (
     ChatPromptTemplate,
     PromptTemplate,
@@ -17,13 +23,68 @@ from langchain_core.prompts import (
     HumanMessagePromptTemplate,
 )
 from langchain.output_parsers import PydanticOutputParser
-# from pydantic import BaseModel, Field
-import backoff
-import logging
-import openai
-from openai import AzureOpenAI
 from pydantic import BaseModel, Field
 
+# Custom Azure OpenAI Chat Model for Langchain
+class AzureOpenAIChat(BaseChatModel):
+    azure_endpoint: str 
+    api_key: str
+    deployment_name: str 
+    api_version: str = "2023-05-15"
+    temperature: float = 0.0
+    client: Any = None
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.client = AzureOpenAI(
+            azure_endpoint=os.environ.get("API_ENDPT"),
+            api_key=os.environ.get("API_KEY"),
+            api_version=self.api_version,
+        )
+    
+    @property
+    def _llm_type(self) -> str:
+        return "azure-openai-chat"
+    
+    @backoff.on_exception(backoff.expo, openai.RateLimitError, max_tries=5)
+    def _generate(
+        self, messages: List[Any], stop: Optional[List[str]] = None, run_manager: Optional[Any] = None, **kwargs: Any
+    ) -> ChatResult:
+        message_dicts = []
+        for message in messages:
+            if isinstance(message, SystemMessage):
+                message_dicts.append({"role": "system", "content": message.content})
+            elif isinstance(message, HumanMessage):
+                message_dicts.append({"role": "user", "content": message.content})
+            elif isinstance(message, AIMessage):
+                message_dicts.append({"role": "assistant", "content": message.content})
+            else:
+                message_dicts.append({"role": "user", "content": str(message)})
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.deployment_name,
+                messages=message_dicts,
+                temperature=self.temperature,
+                seed=42,
+                stop=stop,
+                **kwargs
+            )
+            
+            message = response.choices[0].message.content
+            generation = ChatGeneration(
+                message=AIMessage(content=message),
+                generation_info=dict(finish_reason=response.choices[0].finish_reason)
+            )
+            return ChatResult(generations=[generation])
+            
+        except openai.RateLimitError:
+            logging.info("Rate limit exceeded. Waiting before retrying...")
+            time.sleep(60)
+            raise
+        except Exception as e:
+            print(f"Error during generation: {e}")
+            raise
 
 class PsychDepthEval(BaseModel):
     authenticity_explanation:         str   = Field(description="explanation of authenticity score")
@@ -40,19 +101,14 @@ class PsychDepthEval(BaseModel):
     human_likeness_score:             float = Field(description="likelihood that the story is human or LLM written  (1 is Very Likely LLM - 5 is Very Likely Human)")
 
 class StoryEvaluator:
-    def __init__(self, deployment_name="o1-preview", test_mode=True, num_retries=10):
+    def __init__(self, azure_endpoint="https://endpoint.openai.azure.com/", api_key="api", 
+                 deployment_name="o1-preview", api_version="2023-05-15",
+                 test_mode=False, num_retries=10):
 
         self.deployment_name = deployment_name
         self.num_retries = num_retries
-        self.output_parser = PydanticOutputParser(pydantic_object=PsychDepthEval)
-        
-        if not test_mode:
-            self.client = AzureOpenAI(
-                azure_endpoint= os.environ.get("API_ENDPT")#"https://.openai.azure.com/",  # Replace with your endpoint
-                api_key=os.environ.get("API_KEY") #"",  # Replace with your API key
-                api_version="2023-05-15",
-            )
 
+        self.output_parser = PydanticOutputParser(pydantic_object=PsychDepthEval)
         
         self.persona_background = "{persona}"
 
@@ -66,7 +122,7 @@ class StoryEvaluator:
 
             ###Description of Psychological Depth Components:  
             
-            We define sychological depth in terms of the following concepts, each illustrated by several questions: 
+            We define psychological depth in terms of the following concepts, each illustrated by several questions: 
 
             - Authenticity 
                 - Does the writing feel true to real human experiences? 
@@ -114,9 +170,10 @@ class StoryEvaluator:
         self.prompt   = ChatPromptTemplate.from_messages([system_prompt, user_prompt])
 
         if test_mode:
+            from langchain_community.llms import FakeListLLM
             fake_output = {
-                "authentic_explanation": "The writing displays genuine emotions and thoughts.",
-                "authentic_score": 4.3,
+                "authenticity_explanation": "The writing displays genuine emotions and thoughts.",
+                "authenticity_score": 4.3,
                 "emotion_provoking_explanation": "The writing effectively evokes strong feelings.",
                 "emotion_provoking_score": 3.6,
                 "empathy_explanation": "The writing shows a deep understanding of others' feelings.",
@@ -125,124 +182,61 @@ class StoryEvaluator:
                 "engagement_score": 4.0,
                 "narrative_complexity_explanation": "The narrative structure is intricate and layered.",
                 "narrative_complexity_score": 3.7,
-                "human_or_llm_explanation": "The writing seems too stilted to be human.",
-                "human_or_llm_score": 5
+                "human_likeness_explanation": "The writing seems too stilted to be human.",
+                "human_likeness_score": 5
             }
             responses=[f"Here's what I think:\n{json.dumps(fake_output)}" for i in range(2)]
             self.llm = FakeListLLM(responses=responses)
         else:
-            # load_dotenv(find_dotenv()) # load openai api key from ./.env
-            # self.llm = ChatOpenAI(model_name=self.openai_model)
-            # self.base_temperature = self.llm.temperature
-            # Initialize Azure OpenAI client
-            self.client = AzureOpenAI(
-                azure_endpoint=os.environ.get("API_ENDPT"),  # Replace with your endpoint
-                api_key=os.environ.get("API_KEY"),  # Replace with your API key
-                api_version="2023-05-15",
+            # Use Azure OpenAI with our custom class
+            self.llm = AzureOpenAIChat(
+                azure_endpoint=os.environ.get("API_ENDPT"),
+                api_key=os.environ.get("API_KEY"),
+                deployment_name=deployment_name,
+                temperature=0.0
             )
+            self.base_temperature = self.llm.temperature
 
-        # self.chain = self.prompt | self.llm | self.output_parser
+        self.chain = self.prompt | self.llm | self.output_parser
 
-    @backoff.on_exception(backoff.expo, openai.RateLimitError, max_tries=5)
-    def completions_with_backoff(self, **kwargs):
-        return self.client.chat.completions.create(**kwargs)
-
-    def _get_completion(self, messages):
-        try:
-            # chat_completion = completions_with_backoff(
-            # messages=[
-            #     {"role": "user", "content": messages},  # Removed "system" role
-            # ],
-            # model=self.deployment_name,
-            # seed=42,
-            # # Removed temperature to avoid error
-            # )
-            messages = "List three most popular prompts:"
-            chat_completion = self.completions_with_backoff(
-                messages=[
-                    {"role": "user", "content": messages},  # Removed "system" role
-                ],
-                model=self.deployment_name,
-                seed=42,
-            )
-            print(chat_completion)
-            return chat_completion.choices[0].message.content
-        except openai.RateLimitError:
-            logging.info("Rate limit exceeded. Waiting before retrying...")
-            time.sleep(60)
-        except openai.BadRequestError as e:
-            print(f"BadRequestError: {e}")
-            return str(None)
-        except openai.OpenAIError as e:
-            print(f"OpenAI API Error: {e}")
-            return str(None)
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            return str(None)
-    
-    def format_prompt(self, persona, story):
-        # Format the prompts manually instead of using Langchain
-        format_instructions = self.output_parser.get_format_instructions()
-        combined_prompt = f"{persona}\n\n{self.eval_background.format(story=story, format_instructions=format_instructions)}"
-        return combined_prompt
-    
     def evaluate(self, persona, story, **kwargs):
         retry_count = 0
         while retry_count < self.num_retries:
-            # if retry_count == 0 and self.llm.temperature != self.base_temperature:
-            #     print(f"Resetting base temperature back to {self.base_temperature}")
-            #     self.llm.temperature = self.base_temperature
+            if retry_count == 0 and self.llm.temperature != self.base_temperature:
+                print(f"Resetting base temperature back to {self.base_temperature}")
+                self.llm.temperature = self.base_temperature
             try:
-                # Format the prompt
-                formatted_prompt = self.format_prompt(persona, story)
-                
-                # Create message for Azure OpenAI
-                messages = [
-                    {"role": "user", "content": formatted_prompt}
-                ]
-                messages = ["List three most popular prompts:"]
-                # Get completion
-                response = self._get_completion(messages)
-                print(f"Response: {response}")
-                completion_text = response
-                # completion_text = response.choices[0].message.content
-
-                # Parse the response
-                pydantic_output = self.output_parser.parse(completion_text)
-                # pydantic_output = self.chain.invoke({"persona": persona, "story": story})
+                pydantic_output = self.chain.invoke({"persona": persona, "story": story})
                 dict_output = pydantic_output.model_dump()
                 dict_output.update({
                     "persona": persona, 
                     "story": story,
                     "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    # "temperature": self.llm.temperature, 
+                    "temperature": self.llm.temperature, 
                     **kwargs
                 })
                 return dict_output
-            except Exception:
+            except Exception as e:
                 retry_count += 1
-                # self.llm.temperature += 0.1
-                # print(f"Failed to produce a valid evaluation. Changing temperature to {self.llm.temperature} and trying again...")
-                print("Failed to produce a valid response. Retrying.")
+                print(f"Failed to produce a valid response. Retrying. Error: {str(e)}")
                 if retry_count >= self.num_retries:
                     raise
-                    # print(f"Failed to produce a valid evaluation after {retry_count} tries. Reseting temperature and skipping problem story: \n{story}")
-                    # print(traceback.format_exc())
-                    # self.llm.temperature = self.base_temperature
+                time.sleep(10)  # Wait before retrying
 
 if __name__ == "__main__":
-
     # Key hyperparameters:
-    # openai_model = "gpt-4o-2024-05-13" # "gpt-3.5-turbo-0125"
-    # openai_model = "gpt-4o-mini-2024-07-18"
-    # openai_model = "gpt-4o-2024-08-06"
-    deployment_name = "o1-preview"
+    azure_endpoint = os.environ.get("API_ENDPT")  # Replace with your actual endpoint
+    api_key = os.environ.get("API_KEY")  # Replace with your actual API key
+    deployment_name = "o1-preview"  # Use your actual deployment name
     dataset_path = "data/new_human_stories.csv"
     use_mop = True
 
-    # se = StoryEvaluator(openai_model=openai_model, test_mode=False)
-    se = StoryEvaluator(deployment_name=deployment_name, test_mode=False)
-
+    se = StoryEvaluator(
+        azure_endpoint=azure_endpoint,
+        api_key=api_key,
+        deployment_name=deployment_name,
+        test_mode=False
+    )
 
     if use_mop:
         personas = [
@@ -285,7 +279,6 @@ if __name__ == "__main__":
                 "time_taken": time_taken,
                 **row,
             })
-            # print(f"Results for participant_id={participant_id}, story_id={row['story_id']}, premise_id={row['premise_id']}': {output_dict}")
             results.append(output_dict)
 
             # Append new results to existing annotations and save to CSV
