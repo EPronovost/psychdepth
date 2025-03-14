@@ -202,6 +202,7 @@ class StoryEvaluator:
                 messages = ["List three most popular prompts:"]
                 # Get completion
                 response = self._get_completion(messages)
+                print(f"Response: {response}")
                 completion_text = response
                 # completion_text = response.choices[0].message.content
 
