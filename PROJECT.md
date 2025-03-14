@@ -19,3 +19,7 @@ pip install -r requirements.txt
 Available models are listed [here](https://platform.openai.com/docs/models).
 Using 4o-mini for the 15 new stories cost 4 cents.
 4o is 20x more expensive (cost $0.80), o1 is 100x more expensive (estimated cost $4), and GPT-4.5-preview is 250x more expensive (estimated cost $10)
+
+## Running o1 client
+1. export the API_KEY and API_ENDPT as environment variables in your bash using a private terminal
+2. python -m story_eval.annotate_oai_client

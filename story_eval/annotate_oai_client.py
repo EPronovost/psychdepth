@@ -23,6 +23,7 @@ import logging
 import openai
 from openai import AzureOpenAI
 from pydantic import BaseModel, Field
+import os
 
 
 class PsychDepthEval(BaseModel):
@@ -48,8 +49,8 @@ class StoryEvaluator:
         
         if not test_mode:
             self.client = AzureOpenAI(
-                azure_endpoint= os.environ.get("API_ENDPT")#"https://.openai.azure.com/",  # Replace with your endpoint
-                api_key=os.environ.get("API_KEY") #"",  # Replace with your API key
+                azure_endpoint= os.environ.get("API_ENDPT"),#"https://.openai.azure.com/",  # Replace with your endpoint
+                api_key=os.environ.get("API_KEY"), #"",  # Replace with your API key
                 api_version="2023-05-15",
             )
 
