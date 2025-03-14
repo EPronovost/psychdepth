@@ -6,8 +6,8 @@ from openai import AzureOpenAI
 # Update with your actual deployment name
 DEPLOYMENT_NAME = "o1-preview"  # or "o3-mini-alpha" if needed
 openai_client = AzureOpenAI(
-    azure_endpoint="https://tsvetshop.openai.azure.com/",
-    api_key="4fde8a5fd0154b37a17b4e9ce127ef1b",
+    azure_endpoint="https://.openai.azure.com/",
+    api_key="",
     api_version="2023-05-15",
 )
 @backoff.on_exception(backoff.expo, openai.RateLimitError, max_tries=5)

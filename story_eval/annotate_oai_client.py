@@ -143,13 +143,29 @@ class StoryEvaluator:
         # self.chain = self.prompt | self.llm | self.output_parser
 
     @backoff.on_exception(backoff.expo, openai.RateLimitError, max_tries=5)
+    def completions_with_backoff(self, **kwargs):
+        return self.client.chat.completions.create(**kwargs)
+
     def _get_completion(self, messages):
         try:
-            return self.client.chat.completions.create(
-                messages=messages,
+            # chat_completion = completions_with_backoff(
+            # messages=[
+            #     {"role": "user", "content": messages},  # Removed "system" role
+            # ],
+            # model=self.deployment_name,
+            # seed=42,
+            # # Removed temperature to avoid error
+            # )
+            messages = "List three most popular prompts:"
+            chat_completion = self.completions_with_backoff(
+                messages=[
+                    {"role": "user", "content": messages},  # Removed "system" role
+                ],
                 model=self.deployment_name,
-                seed=42
+                seed=42,
             )
+            print(chat_completion)
+            return chat_completion.choices[0].message.content
         except openai.RateLimitError:
             logging.info("Rate limit exceeded. Waiting before retrying...")
             time.sleep(60)
@@ -183,7 +199,7 @@ class StoryEvaluator:
                 messages = [
                     {"role": "user", "content": formatted_prompt}
                 ]
-
+                messages = ["List three most popular prompts:"]
                 # Get completion
                 response = self._get_completion(messages)
                 completion_text = response
