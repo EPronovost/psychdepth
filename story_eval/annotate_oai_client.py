@@ -5,9 +5,9 @@ from tqdm import tqdm
 import json
 import time
 import textwrap
-import traceback
-from dotenv import load_dotenv, find_dotenv
-from langchain_openai import ChatOpenAI
+# import traceback
+# from dotenv import load_dotenv, find_dotenv
+# from langchain_openai import ChatOpenAI
 # from langchain.llms.fake import FakeListLLM 
 from langchain_community.llms import FakeListLLM # just for testing...
 from langchain_core.prompts import (
@@ -17,6 +17,11 @@ from langchain_core.prompts import (
     HumanMessagePromptTemplate,
 )
 from langchain.output_parsers import PydanticOutputParser
+# from pydantic import BaseModel, Field
+import backoff
+import logging
+import openai
+from openai import AzureOpenAI
 from pydantic import BaseModel, Field
 
 class PsychDepthEval(BaseModel):
@@ -34,23 +39,19 @@ class PsychDepthEval(BaseModel):
     human_likeness_score:             float = Field(description="likelihood that the story is human or LLM written  (1 is Very Likely LLM - 5 is Very Likely Human)")
 
 class StoryEvaluator:
-    def __init__(self, openai_model="gpt-4", test_mode=True, num_retries=10):
+    def __init__(self, deployment_name="o1-preview", test_mode=True, num_retries=10):
 
-        self.openai_model = openai_model
-        self.num_retries=num_retries
-
+        self.deployment_name = deployment_name
+        self.num_retries = num_retries
         self.output_parser = PydanticOutputParser(pydantic_object=PsychDepthEval)
+        
+        if not test_mode:
+            self.client = AzureOpenAI(
+                azure_endpoint="https://tsvetshop.openai.azure.com/",  # Replace with your endpoint
+                api_key="4fde8a5fd0154b37a17b4e9ce127ef1b",  # Replace with your API key
+                api_version="2023-05-15",
+            )
 
-        # self.persona_background = textwrap.dedent("""      
-        #     {persona}
-        #     Your expertise lies in the study of psychological depth in literature.
-        #     Your reputation is built on your ability to assess writing with both precision and fairness.
-        #     You aren't easily swayed by superficial charm and always prioritize substance over style.
-        #     You believe very strongly that the only way to be kind and compassionate to a writer is
-        #     to provide honest and constructive feedback, especially when there is room for improvement.
-        #     Offer feedback that is candid and honest, but also constructive.
-        #     """
-        # )
         
         self.persona_background = "{persona}"
 
@@ -129,26 +130,74 @@ class StoryEvaluator:
             responses=[f"Here's what I think:\n{json.dumps(fake_output)}" for i in range(2)]
             self.llm = FakeListLLM(responses=responses)
         else:
-            load_dotenv(find_dotenv()) # load openai api key from ./.env
-            self.llm = ChatOpenAI(model_name=self.openai_model)
-            self.base_temperature = self.llm.temperature
+            # load_dotenv(find_dotenv()) # load openai api key from ./.env
+            # self.llm = ChatOpenAI(model_name=self.openai_model)
+            # self.base_temperature = self.llm.temperature
+            # Initialize Azure OpenAI client
+            self.client = AzureOpenAI(
+                azure_endpoint="https://tsvetshop.openai.azure.com/",  # Replace with your endpoint
+                api_key="4fde8a5fd0154b37a17b4e9ce127ef1b",  # Replace with your API key
+                api_version="2023-05-15",
+            )
 
-        self.chain = self.prompt | self.llm | self.output_parser
+        # self.chain = self.prompt | self.llm | self.output_parser
 
+    @backoff.on_exception(backoff.expo, openai.RateLimitError, max_tries=5)
+    def _get_completion(self, messages):
+        try:
+            return self.client.chat.completions.create(
+                messages=messages,
+                model=self.deployment_name,
+                seed=42
+            )
+        except openai.RateLimitError:
+            logging.info("Rate limit exceeded. Waiting before retrying...")
+            time.sleep(60)
+        except openai.BadRequestError as e:
+            print(f"BadRequestError: {e}")
+            return str(None)
+        except openai.OpenAIError as e:
+            print(f"OpenAI API Error: {e}")
+            return str(None)
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            return str(None)
+    
+    def format_prompt(self, persona, story):
+        # Format the prompts manually instead of using Langchain
+        format_instructions = self.output_parser.get_format_instructions()
+        combined_prompt = f"{persona}\n\n{self.eval_background.format(story=story, format_instructions=format_instructions)}"
+        return combined_prompt
+    
     def evaluate(self, persona, story, **kwargs):
         retry_count = 0
         while retry_count < self.num_retries:
-            if retry_count == 0 and self.llm.temperature != self.base_temperature:
-                print(f"Resetting base temperature back to {self.base_temperature}")
-                self.llm.temperature = self.base_temperature
+            # if retry_count == 0 and self.llm.temperature != self.base_temperature:
+            #     print(f"Resetting base temperature back to {self.base_temperature}")
+            #     self.llm.temperature = self.base_temperature
             try:
-                pydantic_output = self.chain.invoke({"persona": persona, "story": story})
+                # Format the prompt
+                formatted_prompt = self.format_prompt(persona, story)
+                
+                # Create message for Azure OpenAI
+                messages = [
+                    {"role": "user", "content": formatted_prompt}
+                ]
+
+                # Get completion
+                response = self._get_completion(messages)
+                completion_text = response
+                # completion_text = response.choices[0].message.content
+
+                # Parse the response
+                pydantic_output = self.output_parser.parse(completion_text)
+                # pydantic_output = self.chain.invoke({"persona": persona, "story": story})
                 dict_output = pydantic_output.model_dump()
                 dict_output.update({
                     "persona": persona, 
                     "story": story,
                     "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "temperature": self.llm.temperature, 
+                    # "temperature": self.llm.temperature, 
                     **kwargs
                 })
                 return dict_output
@@ -168,11 +217,14 @@ if __name__ == "__main__":
     # Key hyperparameters:
     # openai_model = "gpt-4o-2024-05-13" # "gpt-3.5-turbo-0125"
     # openai_model = "gpt-4o-mini-2024-07-18"
-    openai_model = "gpt-4o-2024-08-06"
+    # openai_model = "gpt-4o-2024-08-06"
+    deployment_name = "o1-preview"
     dataset_path = "data/new_human_stories.csv"
     use_mop = True
 
-    se = StoryEvaluator(openai_model=openai_model, test_mode=False)
+    # se = StoryEvaluator(openai_model=openai_model, test_mode=False)
+    se = StoryEvaluator(deployment_name=deployment_name, test_mode=False)
+
 
     if use_mop:
         personas = [
@@ -187,7 +239,7 @@ if __name__ == "__main__":
 
     dataset = pd.read_csv(dataset_path)
 
-    save_path = f"./human_study/data/processed/{openai_model}{'' if use_mop else '_no'}_mop_{os.path.splitext(os.path.basename(dataset_path))[0]}_annotations.csv"
+    save_path = f"./human_study/data/processed/{deployment_name}{'' if use_mop else '_no'}_mop_{os.path.splitext(os.path.basename(dataset_path))[0]}_annotations.csv"
 
     # Check if the save file already exists and load it
     try:
