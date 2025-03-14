@@ -16,6 +16,7 @@ from langchain_core.prompts import (
     SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
 )
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain.output_parsers import PydanticOutputParser
 # from pydantic import BaseModel, Field
 import backoff
@@ -113,6 +114,7 @@ class StoryEvaluator:
         system_prompt = SystemMessagePromptTemplate(prompt=self.system_prompt)
         user_prompt   = HumanMessagePromptTemplate(prompt=self.user_prompt)
         self.prompt   = ChatPromptTemplate.from_messages([system_prompt, user_prompt])
+        
 
         if test_mode:
             fake_output = {
@@ -147,39 +149,86 @@ class StoryEvaluator:
     @backoff.on_exception(backoff.expo, openai.RateLimitError, max_tries=5)
     def completions_with_backoff(self, **kwargs):
         return self.client.chat.completions.create(**kwargs)
-
+    
     def _get_completion(self, messages):
+        message_dicts = []
+        for message in messages:
+            if isinstance(message, SystemMessage):
+                message_dicts.append({
+                    "role": "user",  # Changed from "system" since it's not supported
+                    "content": [{"type": "text", "text": message.content}]
+                })
+            elif isinstance(message, HumanMessage):
+                message_dicts.append({
+                    "role": "user",
+                    "content": [{"type": "text", "text": message.content}]
+                })
+            elif isinstance(message, AIMessage):
+                message_dicts.append({
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": message.content}]
+                })
+            else:
+                message_dicts.append({
+                    "role": "user",
+                    "content": [{"type": "text", "text": str(message)}]
+                })
+
         try:
-            # chat_completion = completions_with_backoff(
-            # messages=[
-            #     {"role": "user", "content": messages},  # Removed "system" role
-            # ],
-            # model=self.deployment_name,
-            # seed=42,
-            # # Removed temperature to avoid error
-            # )
-            messages = "List three most popular prompts:"
             chat_completion = self.completions_with_backoff(
-                messages=[
-                    {"role": "user", "content": messages},  # Removed "system" role
-                ],
+                messages=message_dicts,
                 model=self.deployment_name,
-                seed=42,
+                seed=42
             )
-            print(chat_completion)
             return chat_completion.choices[0].message.content
-        except openai.RateLimitError:
-            logging.info("Rate limit exceeded. Waiting before retrying...")
-            time.sleep(60)
-        except openai.BadRequestError as e:
-            print(f"BadRequestError: {e}")
-            return str(None)
-        except openai.OpenAIError as e:
-            print(f"OpenAI API Error: {e}")
-            return str(None)
         except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            return str(None)
+            logging.error(f"Error in completion: {str(e)}")
+            raise
+    
+
+    # def _get_completion(self, messages):
+    #     message_dicts = []
+    #     for message in messages:
+    #         if isinstance(message, SystemMessage):
+    #             message_dicts.append({"role": "system", "content": message.content})
+    #         elif isinstance(message, HumanMessage):
+    #             message_dicts.append({"role": "user", "content": message.content})
+    #         elif isinstance(message, AIMessage):
+    #             message_dicts.append({"role": "assistant", "content": message.content})
+    #         else:
+    #             message_dicts.append({"role": "user", "content": str(message)})
+
+    #     try:
+    #         # chat_completion = completions_with_backoff(
+    #         # messages=[
+    #         #     {"role": "user", "content": messages},  # Removed "system" role
+    #         # ],
+    #         # model=self.deployment_name,
+    #         # seed=42,
+    #         # # Removed temperature to avoid error
+    #         # )
+    #         # messages = "List three most popular prompts:"
+    #         chat_completion = self.completions_with_backoff(
+    #             messages=[
+    #                 {"role": "user", "content": messages},  # Removed "system" role
+    #             ],
+    #             model=self.deployment_name,
+    #             seed=42,
+    #         )
+    #         # print(chat_completion)
+    #         return chat_completion.choices[0].message.content
+    #     except openai.RateLimitError:
+    #         logging.info("Rate limit exceeded. Waiting before retrying...")
+    #         time.sleep(60)
+    #     except openai.BadRequestError as e:
+    #         print(f"BadRequestError: {e}")
+    #         return str(None)
+    #     except openai.OpenAIError as e:
+    #         print(f"OpenAI API Error: {e}")
+    #         return str(None)
+    #     except Exception as e:
+    #         print(f"An unexpected error occurred: {e}")
+    #         return str(None)
     
     def format_prompt(self, persona, story):
         # Format the prompts manually instead of using Langchain
@@ -198,10 +247,20 @@ class StoryEvaluator:
                 formatted_prompt = self.format_prompt(persona, story)
                 
                 # Create message for Azure OpenAI
-                messages = [
-                    {"role": "user", "content": formatted_prompt}
-                ]
-                messages = ["List three most popular prompts:"]
+                # messages = [
+                #     {"role": "user", "content": formatted_prompt}
+                # ]
+                # formatted_prompt = ["List three most popular prompts:"]
+                messages = [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": formatted_prompt
+                        }
+                    ]
+                }]
+                # messages = ["List three most popular prompts:"]
                 # Get completion
                 response = self._get_completion(messages)
                 print(f"Response: {response}")
@@ -219,12 +278,14 @@ class StoryEvaluator:
                     # "temperature": self.llm.temperature, 
                     **kwargs
                 })
+                print ("DICT_OUTPUT",dict_output)
                 return dict_output
-            except Exception:
+            except Exception as e:
+                print(f"An unexpected error occurred: {e}")
                 retry_count += 1
                 # self.llm.temperature += 0.1
                 # print(f"Failed to produce a valid evaluation. Changing temperature to {self.llm.temperature} and trying again...")
-                print("Failed to produce a valid response. Retrying.")
+                #print("Failed to produce a valid response. Retrying.")
                 if retry_count >= self.num_retries:
                     raise
                     # print(f"Failed to produce a valid evaluation after {retry_count} tries. Reseting temperature and skipping problem story: \n{story}")
